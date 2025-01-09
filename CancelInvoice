@@ -1,0 +1,62 @@
+ public function cancelInvoice(Request $request)
+    {
+        try {
+            $invoiceId = $request->invoiceId;
+            $apiKey = $this->getValidApiKey();
+            $client = Identification_client::first();
+
+            if (!$client) {
+                throw new \Exception('Client non trouvé');
+            }
+
+            $data = ['invoice_id' => $invoiceId];
+            Log::info('Tentative d\'annulation de facture', ['invoice_id' => $invoiceId]);
+
+            $response = Http::timeout(60)
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post($client->url_annulation ?? 'https://ebms.obr.gov.bi:9443/ebms_api/cancelInvoice/', $data);
+
+            Log::info('Réponse API annulation', ['body' => $response->body()]);
+
+            if ($response->successful()) {
+                $responseJson = $response->json();
+
+                if (isset($responseJson['success']) && $responseJson['success'] === true) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Facture annulée avec succès'
+                    ]);
+                }
+
+                if (isset($responseJson['msg']) && str_contains(strtolower($responseJson['msg']), 'facture non trouvée')) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cette facture n\'existe pas dans le système'
+                    ], 404);
+                }
+
+                return $this->handleApiErrorResponse($response, $data, $invoiceId);
+            }
+
+            if (in_array($response->status(), [401, 403])) {
+                cache()->forget('api_key');
+                $apiKey = $this->getValidApiKey();
+                return $this->cancelInvoice($request);
+            }
+
+            return $this->handleApiErrorResponse($response, $data, $invoiceId);
+        } catch (\Exception $e) {
+            Log::error('Erreur annulation facture', [
+                'message' => $e->getMessage(),
+                'invoice_id' => $invoiceId ?? null
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
