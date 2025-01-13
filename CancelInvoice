@@ -31,6 +31,9 @@
             ]);
         }
 
+       Log::info('Réponse brute de l\'API', ['response' => $response->body()]);
+
+
         // Gestion des erreurs
         Log::warning('Erreur lors de l\'annulation de la facture', [
             'status' => $response->status(),
