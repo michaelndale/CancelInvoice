@@ -1,109 +1,57 @@
  public function cancelInvoice(Request $request)
-    {
-        $request->validate([
-            'invoice_identifier' => 'required|string',
-            'cn_motif'           => 'required|string',
-        ]);
+{
+    $request->validate([
+        'invoice_identifier' => 'required|string',
+        'cn_motif'           => 'required|string',
+    ]);
 
-        try {
-            // Récupération des données du formulaire
-            $invoiceIdentifier = $request->input('invoice_identifier');
-            $cancelMotif = $request->input('cn_motif');
+    try {
+        // Récupération des données
+        $invoiceIdentifier = $request->input('invoice_identifier');
+        $cancelMotif = $request->input('cn_motif');
+        $apiKey = $this->getValidApiKey(); // Méthode pour obtenir une clé API valide
+        $baseUrl = 'https://ebms.obr.gov.bi:8443/ebms_api/';
+        $url = $baseUrl . 'cancelInvoice/';
 
-            // Récupération de la clé API
-            $apiKey = $this->getValidApiKey();
-
-            // Préparer l'URL de l'API
-            $client = Identification_client::first();
-            if (!$client) {
-                throw new \Exception('Client non trouvé.');
-            }
-            $url = $client->lien_cancelinvoice;
-
-            // Corps de la requête
-            $payload = [
-                'invoice_identifier' => $invoiceIdentifier,
-                'cn_motif'           => $cancelMotif,
-            ];
-
-            // Appel API
-            Log::info('Annulation de la facture', [
-                'url' => $url,
-                'payload' => $payload,
+        // Appel API
+        $response = Http::withToken($apiKey)
+            ->acceptJson()
+            ->post($url, [
+                "invoice_identifier" => $invoiceIdentifier,
+                "cn_motif" => $cancelMotif,
             ]);
 
-            $response = Http::timeout(60)
-                ->withHeaders([
-                    'Authorization' => 'Bearer ' . $apiKey,
-                    'Content-Type'  => 'application/json',
-                ])
-                ->post($url, $payload);
-
-            // Vérification de la réponse
-            $statusCode = $response->status(); // Code de statut HTTP
-            $responseData = $response->json(); // Corps de la réponse JSON
-
-            switch ($statusCode) {
-                case 200:
-                    Log::info('Facture annulée avec succès', [
-                        'response' => $responseData,
-                    ]);
-                    // Appeler la fonction destroy pour mettre à jour la base de données
-                    $this->destroy($invoiceIdentifier);
-
-                    return response()->json([
-                        'success' => true,
-                        'message' => $responseData['msg'] ?? 'Facture annulée avec succès.',
-                        'status_code' => $statusCode,
-                    ]);
-
-                case 403:
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'La clé API est manquante.',
-                        'status_code' => $statusCode,
-                    ]);
-
-                case 400:
-                    $msg = $responseData['msg'] ?? 'Erreur de format.';
-                    // Vérification spécifique si la facture est déjà annulée
-                    if (strpos($msg, 'La facture que vous voulez annuler a été déjà annulée') !== false) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'La facture a déjà été annulée.',
-                            'status_code' => $statusCode,
-                        ]);
-                    }
-                    return response()->json([
-                        'success' => false,
-                        'message' => $msg,
-                        'status_code' => $statusCode,
-                    ]);
-
-                case 500:
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Quelque chose a mal tourné. Veuillez réessayer plus tard.',
-                        'status_code' => $statusCode,
-                    ]);
-
-                default:
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Erreur inconnue.',
-                        'status_code' => $statusCode,
-                    ]);
-            }
-
-        } catch (\Exception $e) {
-            Log::error('Erreur lors de l\'annulation de la facture', [
-                'message' => $e->getMessage(),
-            ]);
-
+        // Vérification de la réponse
+        if ($response->successful()) {
+            Log::info('Facture annulée avec succès', ['response' => $response->json()]);
             return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'status_code' => 500, // Code d'erreur interne du serveur
+                'success' => true,
+                'message' => 'Facture annulée avec succès.',
+                'data' => $response->json(),
             ]);
         }
+
+        // Gestion des erreurs
+        Log::warning('Erreur lors de l\'annulation de la facture', [
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => $response->json()['msg'] ?? 'Une erreur est survenue.',
+            'status_code' => $response->status(),
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Erreur système lors de l\'annulation de la facture', [
+            'message' => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Erreur interne du serveur.',
+            'status_code' => 500,
+        ]);
     }
+}
